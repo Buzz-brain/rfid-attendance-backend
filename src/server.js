@@ -14,7 +14,14 @@ connectDB();
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cors());
+const allowedOrigins = [
+  "https://rfid-attendance-three.vercel.app", // Replace with your actual Vercel URL
+  "http://localhost:5173", // Vite dev server
+];
+app.use(cors({
+    origin: allowedOrigins,
+    credentials: true // if you use cookies/auth
+}));
 app.use(helmet());
 app.use(morgan('dev'));
 
