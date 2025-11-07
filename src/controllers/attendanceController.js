@@ -119,6 +119,9 @@ exports.updateAttendance = async (req, res) => {
         if (!attendance) {
             return res.status(404).json({ success: false, message: 'Attendance record not found' });
         }
+        // Re-populate related fields for frontend
+        await attendance.populate('student', 'name regNo department level photo');
+        await attendance.populate('course', 'courseCode courseTitle');
         res.json({ success: true, message: 'Attendance record updated', data: attendance });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
@@ -135,6 +138,20 @@ exports.deleteAttendance = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Attendance record not found' });
         }
         res.json({ success: true, message: 'Attendance record deleted' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+// @route   GET /api/attendance
+// @desc    Get all attendance records
+// @access  Admin/Lecturer
+exports.getAllAttendance = async (req, res) => {
+    try {
+        const records = await Attendance.find()
+            .populate('student', 'name regNo department level photo')
+            .populate('course', 'courseCode courseTitle');
+        res.json({ success: true, message: 'All attendance records fetched', data: records });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }

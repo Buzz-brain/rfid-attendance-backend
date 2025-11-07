@@ -17,6 +17,7 @@ app.use(express.urlencoded({ extended: true }));
 const allowedOrigins = [
   "https://rfid-attendance-three.vercel.app", // Replace with your actual Vercel URL
   "http://localhost:5173", // Vite dev server
+  "http://localhost:8080", // Vite dev server
 ];
 app.use(cors({
     origin: allowedOrigins,

@@ -58,4 +58,12 @@ router.delete(
     attendanceController.deleteAttendance
 );
 
+// Get all attendance records (Admin/Lecturer)
+router.get(
+    '/',
+    authMiddleware,
+    roleMiddleware('admin', 'lecturer'),
+    attendanceController.getAllAttendance
+);
+
 module.exports = router;

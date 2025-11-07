@@ -59,10 +59,15 @@ exports.getOverview = async (req, res) => {
         const currentActiveSessions = await Promise.all(activeSessions.map(async (s) => {
             const sStart = moment(s.sessionDate).startOf('day');
             const sEnd = moment(s.sessionDate).endOf('day');
-            const attendeesCount = await Attendance.countDocuments({ course: s.course._id, date: { $gte: sStart.toDate(), $lt: sEnd.toDate() }, status: 'Present' });
+            let attendeesCount = 0;
+            let courseInfo = null;
+            if (s.course && s.course._id) {
+                attendeesCount = await Attendance.countDocuments({ course: s.course._id, date: { $gte: sStart.toDate(), $lt: sEnd.toDate() }, status: 'Present' });
+                courseInfo = { _id: s.course._id, courseCode: s.course.courseCode, courseTitle: s.course.courseTitle };
+            }
             return {
                 _id: s._id,
-                course: { _id: s.course._id, courseCode: s.course.courseCode, courseTitle: s.course.courseTitle },
+                course: courseInfo,
                 lecturer: s.lecturer ? { _id: s.lecturer._id, name: s.lecturer.name } : null,
                 sessionDate: s.sessionDate,
                 attendeesCount
@@ -74,10 +79,15 @@ exports.getOverview = async (req, res) => {
         const recentSessions = await Promise.all(recentSessionsRaw.map(async (s) => {
             const sStart = moment(s.sessionDate).startOf('day');
             const sEnd = moment(s.sessionDate).endOf('day');
-            const attendeesCount = await Attendance.countDocuments({ course: s.course._id, date: { $gte: sStart.toDate(), $lt: sEnd.toDate() }, status: 'Present' });
+            let attendeesCount = 0;
+            let courseInfo = null;
+            if (s.course && s.course._id) {
+                attendeesCount = await Attendance.countDocuments({ course: s.course._id, date: { $gte: sStart.toDate(), $lt: sEnd.toDate() }, status: 'Present' });
+                courseInfo = { _id: s.course._id, courseCode: s.course.courseCode, courseTitle: s.course.courseTitle };
+            }
             return {
                 _id: s._id,
-                course: { _id: s.course._id, courseCode: s.course.courseCode, courseTitle: s.course.courseTitle },
+                course: courseInfo,
                 lecturer: s.lecturer ? { _id: s.lecturer._id, name: s.lecturer.name } : null,
                 sessionDate: s.sessionDate,
                 attendeesCount
@@ -111,7 +121,20 @@ exports.getOverview = async (req, res) => {
 // @access  Admin
 exports.exportReport = async (req, res) => {
     try {
-        const records = await Attendance.find()
+        // Support filtering by course and date via query params
+        const { courseId, date } = req.query;
+        const filter = {};
+        if (courseId) filter.course = courseId;
+        if (date) {
+            const mDate = moment(date, 'YYYY-MM-DD');
+            if (mDate.isValid()) {
+                filter.date = {
+                    $gte: mDate.startOf('day').toDate(),
+                    $lt: mDate.endOf('day').toDate()
+                };
+            }
+        }
+        const records = await Attendance.find(filter)
             .populate('student', 'name regNo department level')
             .populate('course', 'courseCode courseTitle');
         const data = records.map(r => ({
@@ -156,25 +179,107 @@ exports.getActivityLogs = async (req, res) => {
 // @access  Admin
 exports.exportReportPDF = async (req, res) => {
     try {
-        // For demo: generate a simple PDF using pdfkit
-        const PDFDocument = require('pdfkit');
-        const doc = new PDFDocument();
+        // Support filtering by course and date via query params
+        const { courseId, date } = req.query;
+        const filter = {};
+        if (courseId) filter.course = courseId;
+        if (date) {
+            const mDate = moment(date, 'YYYY-MM-DD');
+            if (mDate.isValid()) {
+                filter.date = {
+                    $gte: mDate.startOf('day').toDate(),
+                    $lt: mDate.endOf('day').toDate()
+                };
+            }
+        }
+        // Professional PDF table export using pdfkit
+    const PDFDocument = require('pdfkit');
+    // Use landscape orientation for more horizontal space
+    // Use standard A4 landscape, increase row height for visibility
+    const doc = new PDFDocument({ margin: 40, size: 'A4', layout: 'landscape' });
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', 'attachment; filename=attendance_report.pdf');
         doc.pipe(res);
-        doc.fontSize(18).text('Attendance Report', { align: 'center' });
-        doc.moveDown();
-        const records = await Attendance.find()
+
+        // Title
+        doc.font('Helvetica-Bold').fontSize(22).fillColor('#222').text('Attendance Report', { align: 'center' });
+        doc.moveDown(0.5);
+        doc.font('Helvetica').fontSize(12).fillColor('#444').text(`Exported: ${moment().format('YYYY-MM-DD HH:mm')}`, { align: 'center' });
+        doc.moveDown(1.5);
+
+        // Table headers
+        const headers = [
+            'Student', 'Reg No', 'Department', 'Level', 'Course', 'Date', 'Status', 'RFID'
+        ];
+        // Increased column widths for landscape orientation
+    // Use balanced column widths
+    const colWidths = [140, 90, 60, 80, 120, 100, 80, 120]; // Course column reduced
+    const rowHeight = 50; // Increased row height for more vertical space
+        const startX = doc.page.margins.left;
+        let y = doc.y;
+
+        // Draw header row
+        doc.font('Helvetica-Bold').fontSize(12).fillColor('#fff');
+        doc.rect(startX, y, colWidths.reduce((a, b) => a + b, 0), rowHeight).fill('#2563eb');
+        let x = startX;
+        headers.forEach((header, i) => {
+            doc.fillColor('#fff').text(header, x + 6, y + 10, { width: colWidths[i] - 12, align: 'center' });
+            x += colWidths[i];
+        });
+        y += rowHeight;
+
+        // Fetch records
+        const records = await Attendance.find(filter)
             .populate('student', 'name regNo department level')
             .populate('course', 'courseCode courseTitle');
+
+        // Table rows
+        let rowIndex = 0;
         records.forEach(r => {
-            doc.fontSize(12).text(`Student: ${r.student?.name} (${r.student?.regNo})`);
-            doc.text(`Course: ${r.course?.courseCode} - ${r.course?.courseTitle}`);
-            doc.text(`Date: ${moment(r.date).format('YYYY-MM-DD')}`);
-            doc.text(`Status: ${r.status}`);
-            doc.text(`RFID: ${r.rfidTag}`);
-            doc.moveDown();
+            x = startX;
+            // Alternating row color
+            const rowColor = rowIndex % 2 === 0 ? '#f3f4f6' : '#e0e7ef';
+            doc.rect(x, y, colWidths.reduce((a, b) => a + b, 0), rowHeight).fill(rowColor);
+            doc.font('Helvetica').fontSize(11).fillColor('#222');
+            // Show only department abbreviation (e.g., IFT)
+            let deptAbbr = '-';
+            if (r.student?.department) {
+                // If department contains 'Information Technology', show 'IFT'
+                if (/information technology/i.test(r.student.department)) {
+                    deptAbbr = 'IFT';
+                } else {
+                    // Otherwise, use first word's initials (e.g., Computer Science -> CS)
+                    deptAbbr = r.student.department.split(' ').map(w => w[0]).join('').toUpperCase();
+                }
+            }
+            const row = [
+                r.student?.name || '-',
+                r.student?.regNo || '-',
+                deptAbbr,
+                r.student?.level || '-',
+                `${r.course?.courseCode || '-'} ${r.course?.courseTitle || ''}`,
+                moment(r.date).format('YYYY-MM-DD'),
+                r.status || '-',
+                r.rfidTag || '-'
+            ];
+            row.forEach((cell, i) => {
+                // Add extra vertical padding for the Course column
+                const verticalPad = i === 4 ? 25 : 10;
+                doc.text(cell, x + 6, y + verticalPad, { width: colWidths[i] - 12, align: 'center', ellipsis: true });
+                x += colWidths[i];
+            });
+            y += rowHeight;
+            rowIndex++;
+            // Page break if needed
+            if (y > doc.page.height - doc.page.margins.bottom - 40) {
+                doc.addPage();
+                y = doc.page.margins.top;
+            }
         });
+
+        // Footer summary
+        doc.moveDown(2);
+        doc.font('Helvetica-Bold').fontSize(12).fillColor('#2563eb').text(`Total Records: ${records.length}`, { align: 'right' });
         doc.end();
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
